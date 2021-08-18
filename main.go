@@ -8,6 +8,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
@@ -197,6 +198,11 @@ func deleteRecreateSecret(secret *corev1.Secret) error {
 		},
 	)
 	l.Print("deleteRecreateSecret")
+	secret.ResourceVersion = ""
+	secret.UID = ""
+	secret.CreationTimestamp = metav1.Time{
+		Time: time.Time{},
+	}
 	sc := k8sClient.CoreV1().Secrets(secret.Namespace)
 	_, err := sc.Get(context.Background(), secret.Name, metav1.GetOptions{})
 	if err != nil {
