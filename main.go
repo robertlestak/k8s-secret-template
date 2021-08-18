@@ -189,6 +189,66 @@ newLoop:
 	return newSecrets, nil
 }
 
+func deleteRecreateSecret(secret *corev1.Secret) error {
+	l := log.WithFields(
+		log.Fields{
+			"action": "deleteRecreateSecret",
+			"secret": secret.Namespace + "/" + secret.Name,
+		},
+	)
+	l.Print("deleteRecreateSecret")
+	sc := k8sClient.CoreV1().Secrets(secret.Namespace)
+	_, err := sc.Get(context.Background(), secret.Name, metav1.GetOptions{})
+	if err != nil {
+		l.Printf("secret does not exist: %s", err)
+		return err
+	}
+	derr := sc.Delete(context.Background(), secret.Name, metav1.DeleteOptions{})
+	if derr != nil {
+		l.Printf("delete error: %s", derr)
+		return derr
+	}
+	_, err = sc.Create(context.Background(), secret, metav1.CreateOptions{})
+	if err != nil {
+		l.Printf("create error: %s", err)
+		return err
+	}
+	return nil
+}
+
+func ensureCreateSecret(secret *corev1.Secret) error {
+	l := log.WithFields(
+		log.Fields{
+			"action": "ensureCreateSecret",
+			"ns":     secret.Namespace,
+			"name":   secret.Name,
+		},
+	)
+	l.Print("ensureCreateSecret")
+	if secret.UID != "" {
+		l.Printf("secret UID: %s/%s %s", secret.Namespace, secret.Name, secret.UID)
+		s, err := k8sClient.CoreV1().Secrets(secret.Namespace).Update(context.Background(), secret, metav1.UpdateOptions{
+			//DryRun: []string{"All"},
+		})
+		if err != nil {
+			l.Printf("update error: %v", err)
+			return deleteRecreateSecret(secret)
+		}
+		l.Printf("updated secret: %s/%s", s.Namespace, s.Name)
+	} else {
+		l.Printf("secret: %s/%s", secret.Namespace, secret.Name)
+		s, err := k8sClient.CoreV1().Secrets(secret.Namespace).Create(context.Background(), secret, metav1.CreateOptions{
+			//DryRun: []string{"All"},
+		})
+		if err != nil {
+			l.Printf("create error: %v", err)
+			return deleteRecreateSecret(secret)
+		}
+		l.Printf("created secret: %s/%s", s.Namespace, s.Name)
+	}
+	return nil
+}
+
 func updateK8sSecrets(secrets []*corev1.Secret) error {
 	l := log.WithFields(
 		log.Fields{
@@ -198,24 +258,10 @@ func updateK8sSecrets(secrets []*corev1.Secret) error {
 	l.Print("updateK8sSecrets")
 	for _, secret := range secrets {
 		l.Printf("secret: %s/%s %s", secret.Namespace, secret.Name, secret.UID)
-		if secret.UID != "" {
-			l.Printf("secret: %s/%s", secret.Namespace, secret.Name)
-			s, err := k8sClient.CoreV1().Secrets(secret.Namespace).Update(context.Background(), secret, metav1.UpdateOptions{
-				//DryRun: []string{"All"},
-			})
-			if err != nil {
-				return err
-			}
-			l.Printf("updated secret: %s/%s", s.Namespace, s.Name)
-		} else {
-			l.Printf("secret: %s/%s", secret.Namespace, secret.Name)
-			s, err := k8sClient.CoreV1().Secrets(secret.Namespace).Create(context.Background(), secret, metav1.CreateOptions{
-				//DryRun: []string{"All"},
-			})
-			if err != nil {
-				return err
-			}
-			l.Printf("created secret: %s/%s", s.Namespace, s.Name)
+		err := ensureCreateSecret(secret)
+		if err != nil {
+			l.Printf("error: %v", err)
+			return err
 		}
 	}
 	return nil
