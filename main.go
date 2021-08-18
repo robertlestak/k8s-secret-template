@@ -155,6 +155,13 @@ secretsLoop:
 	return namespaces
 }
 
+func mergeAnnotations(annotations map[string]string, annotationsToMerge map[string]string) map[string]string {
+	for k, v := range annotationsToMerge {
+		annotations[k] = v
+	}
+	return annotations
+}
+
 func updateSecretData(newSecrets []*corev1.Secret, existingSecrets []corev1.Secret) ([]*corev1.Secret, error) {
 	l := log.WithFields(
 		log.Fields{
@@ -170,8 +177,11 @@ newLoop:
 			l.Printf("existing secret: %s/%s", rs.Namespace, rs.Name)
 			if ls.Name == rs.Name && ls.Namespace == rs.Namespace {
 				l.Printf("update secret: %s/%s", ls.Namespace, ls.Name)
-				newSecrets[i].Data = rs.Data
-				newSecrets[i].UID = rs.UID
+				a := mergeAnnotations(newSecrets[i].Annotations, ls.Annotations)
+				lb := mergeAnnotations(newSecrets[i].Labels, ls.Labels)
+				newSecrets[i] = &rs
+				newSecrets[i].Annotations = a
+				newSecrets[i].Labels = lb
 				continue newLoop
 			}
 		}
