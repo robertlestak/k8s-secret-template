@@ -177,8 +177,8 @@ newLoop:
 			l.Printf("existing secret: %s/%s", rs.Namespace, rs.Name)
 			if ls.Name == rs.Name && ls.Namespace == rs.Namespace {
 				l.Printf("update secret: %s/%s", ls.Namespace, ls.Name)
-				a := mergeAnnotations(newSecrets[i].Annotations, ls.Annotations)
-				lb := mergeAnnotations(newSecrets[i].Labels, ls.Labels)
+				a := mergeAnnotations(rs.Annotations, newSecrets[i].Annotations)
+				lb := mergeAnnotations(rs.Labels, newSecrets[i].Labels)
 				newSecrets[i] = &rs
 				newSecrets[i].Annotations = a
 				newSecrets[i].Labels = lb
