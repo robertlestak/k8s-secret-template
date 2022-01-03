@@ -157,7 +157,7 @@ secretsLoop:
 	return namespaces
 }
 
-func mergeAnnotations(annotations map[string]string, annotationsToMerge map[string]string) map[string]string {
+func mergeMapStringString(annotations map[string]string, annotationsToMerge map[string]string) map[string]string {
 	for k, v := range annotationsToMerge {
 		annotations[k] = v
 	}
@@ -173,15 +173,15 @@ func updateSecretData(newSecrets []*corev1.Secret, existingSecrets []corev1.Secr
 		})
 	l.Print("updateSecretData")
 newLoop:
-	for i, ls := range newSecrets {
-		l.Printf("new secret: %d/%d", ls.Namespace, ls.Name)
-		for _, rs := range existingSecrets {
-			l.Printf("existing secret: %s/%s", rs.Namespace, rs.Name)
-			if ls.Name == rs.Name && ls.Namespace == rs.Namespace {
-				l.Printf("update secret: %s/%s", ls.Namespace, ls.Name)
-				a := mergeAnnotations(rs.Annotations, newSecrets[i].Annotations)
-				lb := mergeAnnotations(rs.Labels, newSecrets[i].Labels)
-				newSecrets[i] = &rs
+	for i, ns := range newSecrets {
+		l.Printf("new secret: %d/%d", ns.Namespace, ns.Name)
+		for _, es := range existingSecrets {
+			l.Printf("existing secret: %s/%s", es.Namespace, es.Name)
+			if ns.Name == es.Name && ns.Namespace == es.Namespace {
+				l.Printf("update secret: %s/%s", ns.Namespace, ns.Name)
+				a := mergeMapStringString(es.Annotations, newSecrets[i].Annotations)
+				lb := mergeMapStringString(es.Labels, newSecrets[i].Labels)
+				newSecrets[i] = &es
 				newSecrets[i].Annotations = a
 				newSecrets[i].Labels = lb
 				continue newLoop
