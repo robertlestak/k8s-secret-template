@@ -102,6 +102,18 @@ func getSecretFiles(dir string) []string {
 	return secretFiles
 }
 
+func removeComments(doc string) string {
+	lines := strings.Split(doc, "\n")
+	var result []string
+	for _, line := range lines {
+		if strings.HasPrefix(line, "#") {
+			continue
+		}
+		result = append(result, line)
+	}
+	return strings.Join(result, "\n")
+}
+
 func parseFilesAsSecrets(files []string) ([]*corev1.Secret, error) {
 	l := log.WithFields(
 		log.Fields{
@@ -119,6 +131,10 @@ func parseFilesAsSecrets(files []string) ([]*corev1.Secret, error) {
 		}
 		docs := strings.Split(string(fd), "---")
 		for _, doc := range docs {
+			if strings.TrimSpace(doc) == "" {
+				continue
+			}
+			doc = removeComments(doc)
 			if strings.TrimSpace(doc) == "" {
 				continue
 			}
