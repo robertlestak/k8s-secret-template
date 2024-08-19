@@ -193,7 +193,7 @@ func updateSecretMetadata(newSecrets []*corev1.Secret, existingSecrets []corev1.
 	l.Print("updateSecretMetadata")
 newLoop:
 	for i, ls := range newSecrets {
-		l.Printf("new secret: %d/%d", ls.Namespace, ls.Name)
+		l.Printf("new secret: %s/%s", ls.Namespace, ls.Name)
 		for _, rs := range existingSecrets {
 			l.Printf("existing secret: %s/%s", rs.Namespace, rs.Name)
 			if ls.Name == rs.Name && ls.Namespace == rs.Namespace {
@@ -231,6 +231,10 @@ func patchSecretMetadata(secret *corev1.Secret) error {
 	sc := k8sClient.CoreV1().Secrets(secret.Namespace)
 	_, err = sc.Patch(context.Background(), secret.Name, types.MergePatchType, jd, metav1.PatchOptions{})
 	if err != nil {
+		// if it's not found, ignore
+		if strings.Contains(err.Error(), "not found") {
+			return nil
+		}
 		l.Printf("patch error: %v", err)
 		return err
 	}
