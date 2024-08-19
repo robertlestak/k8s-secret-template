@@ -111,12 +111,13 @@ func parseFilesAsSecrets(files []string) ([]*corev1.Secret, error) {
 	var secrets []*corev1.Secret
 	for _, file := range files {
 		l.Printf("file: %s", file)
-		fd, ferr := ioutil.ReadFile(file)
+		fd, ferr := os.ReadFile(file)
 		if ferr != nil {
 			log.Errorf("Failed to read file: %s", ferr)
 			return nil, ferr
 		}
-		docs := strings.Split(string(fd), "---")
+		content := removeComments(string(fd))
+		docs := strings.Split(content, "---")
 		for _, doc := range docs {
 			if strings.TrimSpace(doc) == "" {
 				continue
@@ -137,9 +138,20 @@ func parseFilesAsSecrets(files []string) ([]*corev1.Secret, error) {
 				secrets = append(secrets, s)
 			}
 		}
-
 	}
 	return secrets, nil
+}
+
+func removeComments(content string) string {
+	lines := strings.Split(content, "\n")
+	var result []string
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "#") {
+			result = append(result, line)
+		}
+	}
+	return strings.Join(result, "\n")
 }
 
 func secretNamespaces(secrets []*corev1.Secret) []string {
