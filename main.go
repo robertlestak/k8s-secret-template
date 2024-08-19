@@ -2,19 +2,20 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
-	"time"
 
 	log "github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
+	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/homedir"
@@ -85,7 +86,7 @@ func getSecrets(ns string) ([]corev1.Secret, error) {
 }
 
 func getSecretFiles(dir string) []string {
-	files, err := ioutil.ReadDir(dir)
+	files, err := os.ReadDir(dir)
 	if err != nil {
 		log.Errorf("Failed to read directory: %s", err)
 		return nil
@@ -175,14 +176,21 @@ func mergeAnnotations(annotations map[string]string, annotationsToMerge map[stri
 	return annotations
 }
 
-func updateSecretData(newSecrets []*corev1.Secret, existingSecrets []corev1.Secret) ([]*corev1.Secret, error) {
+func mergeLabels(labels map[string]string, labelsToMerge map[string]string) map[string]string {
+	for k, v := range labelsToMerge {
+		labels[k] = v
+	}
+	return labels
+}
+
+func updateSecretMetadata(newSecrets []*corev1.Secret, existingSecrets []corev1.Secret) ([]*corev1.Secret, error) {
 	l := log.WithFields(
 		log.Fields{
-			"action": "updateSecretData",
+			"action": "updateSecretMetadata",
 			"new":    len(newSecrets),
 			"old":    len(existingSecrets),
 		})
-	l.Print("updateSecretData")
+	l.Print("updateSecretMetadata")
 newLoop:
 	for i, ls := range newSecrets {
 		l.Printf("new secret: %d/%d", ls.Namespace, ls.Name)
@@ -191,8 +199,7 @@ newLoop:
 			if ls.Name == rs.Name && ls.Namespace == rs.Namespace {
 				l.Printf("update secret: %s/%s", ls.Namespace, ls.Name)
 				a := mergeAnnotations(rs.Annotations, newSecrets[i].Annotations)
-				lb := mergeAnnotations(rs.Labels, newSecrets[i].Labels)
-				newSecrets[i] = &rs
+				lb := mergeLabels(rs.Labels, newSecrets[i].Labels)
 				newSecrets[i].Annotations = a
 				newSecrets[i].Labels = lb
 				continue newLoop
@@ -202,81 +209,44 @@ newLoop:
 	return newSecrets, nil
 }
 
-func deleteRecreateSecret(secret *corev1.Secret) error {
+func patchSecretMetadata(secret *corev1.Secret) error {
 	l := log.WithFields(
 		log.Fields{
-			"action": "deleteRecreateSecret",
+			"action": "patchSecretMetadata",
 			"secret": secret.Namespace + "/" + secret.Name,
 		},
 	)
-	l.Print("deleteRecreateSecret")
-	secret.ResourceVersion = ""
-	secret.UID = ""
-	secret.CreationTimestamp = metav1.Time{
-		Time: time.Time{},
+	l.Print("patchSecretMetadata")
+	patchData := map[string]interface{}{
+		"metadata": map[string]interface{}{
+			"annotations": secret.Annotations,
+			"labels":      secret.Labels,
+		},
+	}
+	jd, err := json.Marshal(patchData)
+	if err != nil {
+		l.Printf("json marshal error: %v", err)
+		return err
 	}
 	sc := k8sClient.CoreV1().Secrets(secret.Namespace)
-	_, err := sc.Get(context.Background(), secret.Name, metav1.GetOptions{})
+	_, err = sc.Patch(context.Background(), secret.Name, types.MergePatchType, jd, metav1.PatchOptions{})
 	if err != nil {
-		l.Printf("secret does not exist: %s", err)
-		return err
-	}
-	derr := sc.Delete(context.Background(), secret.Name, metav1.DeleteOptions{})
-	if derr != nil {
-		l.Printf("delete error: %s", derr)
-		return derr
-	}
-	_, err = sc.Create(context.Background(), secret, metav1.CreateOptions{})
-	if err != nil {
-		l.Printf("create error: %s", err)
+		l.Printf("patch error: %v", err)
 		return err
 	}
 	return nil
 }
 
-func ensureCreateSecret(secret *corev1.Secret) error {
+func updateK8sSecretsMetadata(secrets []*corev1.Secret) error {
 	l := log.WithFields(
 		log.Fields{
-			"action": "ensureCreateSecret",
-			"ns":     secret.Namespace,
-			"name":   secret.Name,
-		},
-	)
-	l.Print("ensureCreateSecret")
-	if secret.UID != "" {
-		l.Printf("secret UID: %s/%s %s", secret.Namespace, secret.Name, secret.UID)
-		s, err := k8sClient.CoreV1().Secrets(secret.Namespace).Update(context.Background(), secret, metav1.UpdateOptions{
-			//DryRun: []string{"All"},
-		})
-		if err != nil {
-			l.Printf("update error: %v", err)
-			return deleteRecreateSecret(secret)
-		}
-		l.Printf("updated secret: %s/%s", s.Namespace, s.Name)
-	} else {
-		l.Printf("secret: %s/%s", secret.Namespace, secret.Name)
-		s, err := k8sClient.CoreV1().Secrets(secret.Namespace).Create(context.Background(), secret, metav1.CreateOptions{
-			//DryRun: []string{"All"},
-		})
-		if err != nil {
-			l.Printf("create error: %v", err)
-			return deleteRecreateSecret(secret)
-		}
-		l.Printf("created secret: %s/%s", s.Namespace, s.Name)
-	}
-	return nil
-}
-
-func updateK8sSecrets(secrets []*corev1.Secret) error {
-	l := log.WithFields(
-		log.Fields{
-			"action":  "updateK8sSecrets",
+			"action":  "updateK8sSecretsMetadata",
 			"secrets": len(secrets),
 		})
-	l.Print("updateK8sSecrets")
+	l.Print("updateK8sSecretsMetadata")
 	for _, secret := range secrets {
 		l.Printf("secret: %s/%s %s", secret.Namespace, secret.Name, secret.UID)
-		err := ensureCreateSecret(secret)
+		err := patchSecretMetadata(secret)
 		if err != nil {
 			l.Printf("error: %v", err)
 			return err
@@ -325,12 +295,12 @@ func main() {
 		allSecrets = append(allSecrets, s...)
 	}
 	l.Printf("all existing secrets: %d", len(allSecrets))
-	us, uerr := updateSecretData(sec, allSecrets)
+	us, uerr := updateSecretMetadata(sec, allSecrets)
 	if uerr != nil {
 		l.Fatal(uerr)
 	}
 	l.Printf("updated secrets: %+v", len(us))
-	uerr = updateK8sSecrets(us)
+	uerr = updateK8sSecretsMetadata(us)
 	if uerr != nil {
 		l.Fatal(uerr)
 	}
